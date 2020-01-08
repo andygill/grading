@@ -19,6 +19,7 @@ executable grading
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base                 >= 4.9     && < 4.14
+  build-depends:       base                 >= 4.9     && < 4.14,
+                       earthquake
   -- hs-source-dirs:      
   default-language:    Haskell2010

@@ -24,6 +24,7 @@ executable grading
 		       bytestring,
 		       cassava,
 		       text,
+		       unordered-containers,
 		       vector,		       
 		       yaml
   		       

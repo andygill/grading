@@ -3,46 +3,83 @@
 {-# LANGUAGE RecordWildCards #-}
 import qualified Data.Csv as C
 import qualified Data.Aeson as A
-import           Data.Aeson (FromJSON, ToJSON, parseJSON, (.=))
+import           Data.Aeson (FromJSON, ToJSON, toJSON, parseJSON, (.=), (.:), withObject)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import           Data.List as L
 import           Data.String as S
+import           Data.Char
+import qualified Data.HashMap.Strict as H
 import qualified Data.Text as T
 import qualified Data.Vector as V hiding ((++))
 import qualified Data.Yaml as Y
 import qualified Data.Yaml.Pretty as Y
+import Control.Applicative
+import           Text.Read
 import System.Environment
 
--- temp main
+
+-- represent key/value object as key/value pairs
+newtype KeyValues a = KeyValues { unKeyValues :: [(String,a)] }
+	deriving Show
+
+instance ToJSON a => ToJSON (KeyValues a) where
+  toJSON (KeyValues kvs) = A.object [ T.pack k .= v | (k,v) <- kvs ]
+
+instance FromJSON a => FromJSON (KeyValues a) where
+  parseJSON = withObject "KeyValues" $ \ o -> KeyValues <$>
+  	    sequence [ parseJSON v >>= \ r -> pure (T.unpack k,r) | (k,v) <- H.toList o ]
 
 data AssignmentSchema = AssignmentSchema 
-  { outOf  :: Double    -- /3 mean max score of 3
-  , weight :: Double	-- 1 == 100% == everything
+  { score  :: Double            -- max score 
+  , weight :: Percent 		-- weight of this assignment
   }
   deriving Show
+
+instance ToJSON AssignmentSchema where
+  toJSON (AssignmentSchema o w) = A.object 
+     [ "score" .= o
+     , "weight" .= w
+     ]
+
+instance FromJSON AssignmentSchema where
+  parseJSON = withObject "AssignmentSchema" $ \ v -> AssignmentSchema
+    <$> v .: "score"
+    <*> v .: "weight"
 
 type AssignmentName = String
 
 data Class = Class 
-  { weights:: [(AssignmentName,AssignmentSchema)]
-  , learning:: [(String,[AssignmentName])]
-  , grading:: [(String,Double)]
-  , students:: [Student]
+  { weights  :: [(AssignmentName,AssignmentSchema)]
+  , learning :: [(String,[AssignmentName])]
+  , grading  :: [(String,Percent)]
+  , students :: [Student]
   }    
   deriving Show
-
 
 instance ToJSON Class where
   toJSON Class{..} = A.object $
     [ "Weights" .= A.object 
-        [ T.pack n .= ("/" ++ show o ++ "," ++ show (w * 100) ++ "%") | (n,AssignmentSchema o w) <- weights ]
---    , "Learning Objectives" .= A.object 
---        [ show w | w <- learning ]
---    , "Grading" .= A.object 
---        [ show w | w <- grading ]
-    ] ++ map studentToAttribute students
+        [ T.pack n .= s
+	| (n,s) <- weights
+	]
+    , "Learning Outcomes" .= A.object 
+        [ T.pack n .= ns
+	| (n,ns) <- learning 
+	]
+    , "Grades" .= A.object 
+        [ T.pack n .= w
+	| (n,w) <- grading
+	]
+    , "Students" .= toJSON students
+    ]
 
+instance FromJSON Class where
+  parseJSON = withObject "Class" $ \ v -> Class
+    <$> (unKeyValues <$> v .: "Weights")
+    <*> (unKeyValues <$> v .: "Learning Outcomes")
+    <*> (unKeyValues <$> v .: "Grades")
+    <*> v .: "Students"
 
 data Student = Student
   { name :: String -- Flintstone, Fred
@@ -65,28 +102,83 @@ studentToAttribute (Student{..}) = T.pack name .= A.object
      | (name,Score n) <- assignments
      ])
 
---instance FromJSON Student where
---   parseJSON = withObject "Student" $ \ o -> 
+instance FromJSON Student where
+  parseJSON = withObject "Students" $ \ o -> case H.toList o of
+    [(name,info)] -> (withObject "Students" $ \ i -> Student (T.unpack name) 
+         <$> i .: "kuid"
+	 <*> i .: "email"
+	 <*> i .: "degree"
+	 <*> (unKeyValues <$> ((i .: "assignments") <|> pure (KeyValues [])))) info
+    _ -> fail "bad student"
 
-newtype Students = Students [Student]
+
+newtype Students = Students { unStudents :: [Student] }
+newtype AStudent = AStudent (String -> Student)
+
+{-
+instance FromJSON AStudent where
+   parseJSON = withObject "Students" $ \ o -> AStudent <$> 
+     (Student
+         <$> o .: "kuid"
+	 <*> o .: "email"
+	 <*> o .: "degree"
+	 <*> (unKeyValues <$> parseJSON (A.Object $ 
+	     		      		H.delete "kuid" $
+					H.delete "email" $ 
+					H.delete "degree" o)))
+
+-}   
 
 instance ToJSON Students where
   toJSON (Students ss) = A.object (map studentToAttribute ss)
 
+{-
+instance FromJSON Students where
+   parseJSON = withObject "Students" $ \ o -> f <$> parseJSON (A.Object o)
+    where
+       f :: KeyValues AStudent -> Students
+       f (KeyValues kvs) = Students [ g k | (k,AStudent g) <- kvs ]
+-}
+
 data Degree = CSBS | CoEBS | EEBS | ICBS | CSBS_CEBS | MathBS | PhysBS | GRAD | CSMS | CoEMS | CSPhD
   deriving (Show, Read)
 
-data Score = Score Double
-  deriving Show
+instance ToJSON Degree where
+  toJSON = toJSON . show
 
 instance FromJSON Degree where
---  parseJSON (A.String "BSCS") = pure BSCS
+  parseJSON a = parseJSON a >>= \ s -> case readMaybe s of
+     Just d -> pure d
+     Nothing -> fail "bad degree"
   parseJSON other = fail $ show other
+
+data Score = Score Double
+     	   | NoScore
+  deriving Show
 
 instance FromJSON Score where
   parseJSON v@A.Number{} = Score <$> parseJSON v
-  parseJSON v = Score . sum . (++ []) <$> parseJSON v 
-  parseJSON other = fail $ show other
+  parseJSON A.Null = pure NoScore
+  parseJSON v@A.Array{} = Score . sum . (++ []) <$> parseJSON v 
+  parseJSON other = error $ show other
+
+newtype Percent = Percent Double	-- where 100% is Percent 100.0
+  deriving Show
+
+instance ToJSON Percent where
+  toJSON (Percent n) = toJSON (show n ++ "%")
+
+instance FromJSON Percent where
+  parseJSON v = parseJSON v >>= parsePercent
+    where
+      parsePercent :: Monad m => String -> m Percent
+      parsePercent r0 = head $ 
+        [ pure (Percent (read p))
+        | (p,r1) <- lex r0
+        , all isDigit p
+        , ("%",r2) <- lex r1
+        , ("","") <- lex r2
+        ] ++ [fail "bad percent"]
 
 main :: IO ()
 main = do
@@ -99,11 +191,11 @@ main2 ["import",csvFile] = do
   let Right (csv :: V.Vector [String]) = C.decode C.NoHeader txt  
   print csv
   let students :: [Student] = [ s | Just s <- importStudent <$> V.toList csv ]
-  BS.putStrLn $ encodeStudent (Students students)
+  BS.putStrLn $ encodeStudent (Class [] [] [] students)
 main2 ["verify",yamlFile] = do
   r <- Y.decodeFileEither yamlFile
   case r of
-   Right a -> print (a :: A.Value)
+   Right a -> print (a :: Class)
    Left msg -> print msg
 
 importStudent :: [String] -> Maybe Student
@@ -148,4 +240,4 @@ labels xs ys = case (L.elemIndex xs order, L.elemIndex ys order) of
     (Nothing,Just x) -> GT
     _ -> xs `compare` ys
   where
-    order = ["kuid","email","degree"]
+    order = ["Weights","Learning Outcomes","Grades","kuid","email","degree"]

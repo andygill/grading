@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NamedFieldPuns #-}
 import qualified Data.Csv as C
 import qualified Data.Aeson as A
 import           Data.Aeson (FromJSON, ToJSON, toJSON, parseJSON, (.=), (.:), withObject)
@@ -17,7 +18,6 @@ import qualified Data.Yaml.Pretty as Y
 import Control.Applicative
 import           Text.Read
 import System.Environment
-
 
 -- represent key/value object as key/value pairs
 newtype KeyValues a = KeyValues { unKeyValues :: [(String,a)] }
@@ -154,7 +154,7 @@ instance FromJSON Degree where
 
 data Score = Score Double
      	   | NoScore
-  deriving Show
+  deriving (Show, Eq, Ord)
 
 instance FromJSON Score where
   parseJSON v@A.Number{} = Score <$> parseJSON v
@@ -192,6 +192,18 @@ main2 ["import",csvFile] = do
   print csv
   let students :: [Student] = [ s | Just s <- importStudent <$> V.toList csv ]
   BS.putStrLn $ encodeStudent (Class [] [] [] students)
+main2 ["blackboard",code,csvFile,yamlFile] = do
+  txt <- BSL.readFile csvFile
+  txt <- pure $ case BSL.unpack txt of
+    (239:187:191:t) -> BSL.pack t    -- Complete UTF-16 hack
+    _               -> txt
+  let Right (csv :: V.Vector [String]) = C.decode C.HasHeader txt  
+  print csv
+  let blackboard :: [(Integer,[String])] = [ s | Just s <- importBlackboard <$> V.toList csv ]
+  -- print blackboard
+  Right (cls :: Class) <- Y.decodeFileEither yamlFile
+  print cls
+  BS.putStrLn $ encodeStudent $ injectBlackboard code blackboard cls
 main2 ["verify",yamlFile] = do
   r <- Y.decodeFileEither yamlFile
   case r of
@@ -241,3 +253,34 @@ labels xs ys = case (L.elemIndex xs order, L.elemIndex ys order) of
     _ -> xs `compare` ys
   where
     order = ["Weights","Learning Outcomes","Grades","kuid","email","degree"]
+
+importBlackboard :: [String] -> Maybe (Integer,[String])
+importBlackboard (_:_:_:kuid:_:"Yes":"":_:xs) | all isDigit kuid = pure (read kuid,xs)
+importBlackboard xs = error $ show ("blackboard",xs)
+
+injectBlackboard :: String -> [(Integer,[String])] -> Class -> Class
+injectBlackboard code env cls@Class{students} = 
+  cls { students = injectBlackboardStudent (words code) env <$> students }
+
+injectBlackboardStudent :: [String] -> [(Integer,[String])] -> Student -> Student
+injectBlackboardStudent codes env st@Student{name,kuid,assignments} = 
+    st { assignments = find <$> sort (nub (map fst assignments ++ codes)) }
+  where
+   sEnv = case lookup kuid env of
+   	    Just es -> zip codes [ case readMaybe (clean e) of
+				     Just s -> Score s
+				     _ | e == "Needs Grading" -> NoScore
+				     _ | e == "" -> NoScore
+	    	       	   	     Nothing -> error $ show e
+	    	                 | e <-  es 
+				 ]
+	    Nothing -> error $ "can not find student : " ++ show kuid
+   find n = (n,case (lookup n assignments, lookup n sEnv) of
+     (Just s,Nothing) -> s
+     (Nothing,Just s) -> s
+     (Just s1,Just s2) -> if s1 == s2 then s1 else error $ 
+     	   	   show ("!",name,kuid,n,s1,s2,sEnv)
+     (Nothing,Nothing) -> error "internal error in injectBlackboardStudent")
+
+clean xs | "In Progress(" `isPrefixOf` xs && ")" `isSuffixOf` xs = reverse $ drop 1 $ reverse $ drop 12 xs
+         | otherwise = xs

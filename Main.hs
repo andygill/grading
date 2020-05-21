@@ -94,13 +94,14 @@ instance ToJSON Student where
   toJSON st = A.object [studentToAttribute st]
 
 studentToAttribute (Student{..}) = T.pack name .= A.object 
-    ([ "kuid" .= kuid 
+     [ "kuid" .= kuid 
      , "email" .= email
      , "degree" .= show degree
-     ] ++
-     [ T.pack name .= n
-     | (name,Score n) <- assignments
-     ])
+     , "assignments" .= A.object
+          [ T.pack name .= n
+	  | (name,Score n) <- assignments
+	  ]
+     ]
 
 instance FromJSON Student where
   parseJSON = withObject "Students" $ \ o -> case H.toList o of
@@ -175,10 +176,11 @@ instance FromJSON Percent where
       parsePercent r0 = head $ 
         [ pure (Percent (read p))
         | (p,r1) <- lex r0
-        , all isDigit p
+        , all isDigit' p
         , ("%",r2) <- lex r1
         , ("","") <- lex r2
         ] ++ [fail "bad percent"]
+      isDigit' c = isDigit c || c == '.'
 
 main :: IO ()
 main = do
@@ -201,9 +203,20 @@ main2 ["blackboard",code,csvFile,yamlFile] = do
   print csv
   let blackboard :: [(Integer,[String])] = [ s | Just s <- importBlackboard <$> V.toList csv ]
   -- print blackboard
+  (Y.decodeFileEither yamlFile :: IO (Either Y.ParseException Class)) >>= print
   Right (cls :: Class) <- Y.decodeFileEither yamlFile
   print cls
   BS.putStrLn $ encodeStudent $ injectBlackboard code blackboard cls
+  BS.writeFile "tmp.yaml" $ encodeStudent $ injectBlackboard code blackboard cls
+main2 ["sql",code,sqlFile,yamlFile] = do
+  txt <- readFile sqlFile
+  let sql = [ t | Just t <- parseSQL <$> lines txt ]
+  (Y.decodeFileEither yamlFile :: IO (Either Y.ParseException Class)) >>= print
+  Right (cls :: Class) <- Y.decodeFileEither yamlFile
+  print cls
+  let s2 = encodeStudent $ injectBlackboard code sql cls 
+  BS.putStrLn $ s2
+  BS.writeFile "tmp.yaml" s2
 main2 ["verify",yamlFile] = do
   r <- Y.decodeFileEither yamlFile
   case r of
@@ -271,7 +284,9 @@ injectBlackboardStudent codes env st@Student{name,kuid,assignments} =
 				     Just s -> Score s
 				     _ | e == "Needs Grading" -> NoScore
 				     _ | e == "" -> NoScore
-	    	       	   	     Nothing -> error $ show e
+				     _ | e == "NULL" -> NoScore
+				     _ | e == "''" -> NoScore
+	    	       	   	     Nothing -> error $ show ("score",e)
 	    	                 | e <-  es 
 				 ]
 	    Nothing -> error $ "can not find student : " ++ show kuid
@@ -284,3 +299,12 @@ injectBlackboardStudent codes env st@Student{name,kuid,assignments} =
 
 clean xs | "In Progress(" `isPrefixOf` xs && ")" `isSuffixOf` xs = reverse $ drop 1 $ reverse $ drop 12 xs
          | otherwise = xs
+
+------------------------------------------------------------------------------
+
+parseSQL :: String -> Maybe (Integer,[String])
+parseSQL xs | "INSERT INTO homeworks VALUES(" `isPrefixOf` xs
+  = case words $ map (\ c -> if c == ',' then ' ' else if c == ' ' then '_' else c) $ reverse $ tail $ dropWhile (/= ')') $ reverse $ tail $ dropWhile (/= '(') xs of
+     (kuid:_:_:xs) -> pure (read kuid,xs)
+parseSQL _ = Nothing
+	 

@@ -93,15 +93,17 @@ data Student = Student
 instance ToJSON Student where
   toJSON st = A.object [studentToAttribute st]
 
-studentToAttribute (Student{..}) = T.pack name .= A.object 
+studentToAttribute (Student{..}) = T.pack name .= A.object (
      [ "kuid" .= kuid 
      , "email" .= email
      , "degree" .= show degree
-     , "assignments" .= A.object
+     ] ++
+     [ "assignments" .= A.object
           [ T.pack name .= n
 	  | (name,Score n) <- assignments
 	  ]
-     ]
+     | not (null assignments)
+     ])
 
 instance FromJSON Student where
   parseJSON = withObject "Students" $ \ o -> case H.toList o of
@@ -190,10 +192,16 @@ main = do
 main2 :: [String] -> IO ()
 main2 ["import",csvFile] = do
   txt <- BSL.readFile csvFile
-  let Right (csv :: V.Vector [String]) = C.decode C.NoHeader txt  
+  let Right (csv :: V.Vector [String]) = C.decode C.HasHeader txt  
   print csv
-  let students :: [Student] = [ s | Just s <- importStudent <$> V.toList csv ]
+  let fixList (xs:ys:rest) = zipWith app xs ys : fixList rest
+      fixList rest = rest
+      app xs "" = xs
+      app xs ys = xs ++ " " ++ ys
+  print $ (fixList $ V.toList csv)
+  let students :: [Student] = [ s | Just s <- importStudent <$> (fixList $ V.toList csv) ]
   BS.putStrLn $ encodeStudent (Class [] [] [] students)
+  BS.writeFile "tmp.yaml" $ encodeStudent (Class [] [] [] students)
 main2 ["blackboard",code,csvFile,yamlFile] = do
   txt <- BSL.readFile csvFile
   txt <- pure $ case BSL.unpack txt of
@@ -224,7 +232,7 @@ main2 ["verify",yamlFile] = do
    Left msg -> print msg
 
 importStudent :: [String] -> Maybe Student
-importStudent [kuid,name,email,_,_,_,major_degree,_,"Enrolled"] = pure $ Student
+importStudent [_,kuid,name,email,_,_,_,major_degree,_] = pure $ Student
   { name = name
   , kuid = read kuid
   , email = email
@@ -241,6 +249,7 @@ importStudent [kuid,name,email,_,_,_,major_degree,_,"Enrolled"] = pure $ Student
    readDegree "Engineering Undergraduate - Computer ScienceBS/BusinessMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/PsychologyMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/Computer EngineeringBS" = CSBS_CEBS
+   readDegree "Engineering Undergraduate - Computer ScienceBS/LinguisticsMINOR" = CSBS
    readDegree "Liberal Arts&Sci Undergraduate - PhysicsBS" = PhysBS
    readDegree "Engineering Undergraduate - Interdisciplinary ComputingBS" = ICBS
    readDegree "Liberal Arts&Sci Undergraduate - MathematicsBS" = MathBS

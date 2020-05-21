@@ -194,8 +194,10 @@ main2 ["import",csvFile] = do
   txt <- BSL.readFile csvFile
   let Right (csv :: V.Vector [String]) = C.decode C.HasHeader txt  
   print csv
-  let fixList (xs:ys:rest) = zipWith app xs ys : fixList rest
-      fixList rest = rest
+  let fixList (xs:ys:rest) 
+        | head ys == "" = zipWith app xs ys : fixList rest
+      fixList (xs:rest) = xs : fixList rest
+      fixList [] = []
       app xs "" = xs
       app xs ys = xs ++ " " ++ ys
   print $ (fixList $ V.toList csv)
@@ -259,6 +261,8 @@ importStudent [_,kuid,name,email,_,_,_,major_degree,_] = pure $ Student
    readDegree "Engineering Graduate - Computer SciencePHD" = CSPhD
    readDegree "Engineering Graduate - Computer ScienceMS" = CSMS
    readDegree "Engineering Graduate - Computer EngineeringMS" = CoEMS
+   readDegree "Engineering Undergraduate - Engineering PhysicsBS/Est Asian Lang & CulturesMINOR"
+   	      		   		   	            = PhysBS
    readDegree d = error $ "degree: " ++ show d
 
 

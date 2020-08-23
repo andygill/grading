@@ -243,10 +243,12 @@ importStudent [_,kuid,name,email,_,_,_,major_degree,_] = pure $ Student
   }
   where
    readDegree "Engineering Undergraduate - Computer ScienceBS" = CSBS
+   readDegree "Engineering Undergraduate - Computer ScienceBS/AstronomyMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/MathematicsMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/BusinessMINOR/PsychologyMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/Pre-Dr. Medicine/Osteopathic" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/Pre-Law" = CSBS
+   readDegree "Engineering Undergraduate - Computer ScienceBS/PhilosophyMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/EconomicsMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/BusinessMINOR" = CSBS
    readDegree "Engineering Undergraduate - Computer ScienceBS/PsychologyMINOR" = CSBS
@@ -255,14 +257,22 @@ importStudent [_,kuid,name,email,_,_,_,major_degree,_] = pure $ Student
    readDegree "Liberal Arts&Sci Undergraduate - PhysicsBS" = PhysBS
    readDegree "Engineering Undergraduate - Interdisciplinary ComputingBS" = ICBS
    readDegree "Liberal Arts&Sci Undergraduate - MathematicsBS" = MathBS
+   readDegree "Liberal Arts&Sci Undergraduate - MathematicsBS/French & Francophone StdsMINOR" = MathBS
    readDegree "Engineering Undergraduate - Computer EngineeringBS" = CoEBS
    readDegree "Engineering Undergraduate - Electrical EngineeringBS" = EEBS
+   readDegree "Engineering Undergraduate - Electrical EngineeringBS/BusinessMINOR" = EEBS
    readDegree "Engineering Graduate - Computer ScienceMS/Computer SciencePHD" = GRAD
    readDegree "Engineering Graduate - Computer SciencePHD" = CSPhD
    readDegree "Engineering Graduate - Computer ScienceMS" = CSMS
    readDegree "Engineering Graduate - Computer EngineeringMS" = CoEMS
    readDegree "Engineering Undergraduate - Engineering PhysicsBS/Est Asian Lang & CulturesMINOR"
    	      		   		   	            = PhysBS
+   readDegree "Liberal Arts&Sci Undergraduate - Pre-Engineering"
+   	      		   		   	            = PreEngBS
+   readDegree "Liberal Arts&Sci Undergraduate - Pre-Dr. Medicine/Osteopathic"
+   	      		   		   	            = PreMedBS
+   readDegree "Engineering Undergraduate - Computer EngineeringBS/Pre-Law"
+   	      		   		   	            = PreLawBS                                                              
    readDegree d = error $ "degree: " ++ show d
 
 
